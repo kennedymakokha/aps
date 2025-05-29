@@ -5,7 +5,7 @@ import dns from 'dns/promises';
 import pLimit from 'p-limit';
 import cors from 'cors'; // <-- Import cors
 const app = express();
-const PORT = 5000;
+
 const limit = pLimit(50); // Limit concurrent pings
 app.use(cors());
 async function getHostname(ip) {
@@ -42,7 +42,3 @@ export async function scanNetwork() {
 }
 
 
-
-// app.listen(PORT, () => {
-//     console.log(`Scanner API running at http://localhost:${PORT}`);
-// });

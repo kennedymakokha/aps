@@ -3,14 +3,13 @@ import cors from 'cors'; // <-- Import cors
 import { scanNetwork } from './routes/scanner.js';
 import multer from 'multer';
 import codeRoutes from './routes/codes.route.js';
+import analyticsRote from './routes/qrRoutes.js'
 import dotenv from 'dotenv'
 import dbConfig from './configs/db_config.js';
 dotenv.config()
-// const port = process.env.PORT || 5000
+const PORT = process.env.PORT || 5000
 dbConfig()
 const app = express();
-const PORT = 5000;
-
 app.use(cors());
 
 const upload = multer({ storage: multer.memoryStorage() });
@@ -25,6 +24,7 @@ app.get('/scan', async (req, res) => {
   }
 });
 app.use('/api', codeRoutes);
+app.use('/api/analytics', analyticsRote);
 // app.post('/generate-qr', upload.single('logo'), async (req, res) => {
 //   try {
 //     const { ssid, password, color, background } = req.body;
