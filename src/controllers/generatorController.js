@@ -47,6 +47,38 @@ export async function generateQrBuffer({ ssid, password, color = '#000000', back
     // Use string 'image/png' instead of Jimp.MIME_PNG
     return qrImage.getBuffer('image/png');
 }
+const generate_qr_code = expressAsyncHandler(async (req, res) => {
+    try {
+        const { ssid, password, color, background } = req.body;
+        if (!ssid || !password) return res.status(400).json({ error: 'SSID and password required' });
+
+        // STEP 1: Create the QR entry first
+        const newQR = await QRCodeModel.create({
+            type: 'wifi',
+            data: { ssid, password },
+            color,
+            background,
+            logo: req.file?.buffer,
+        });
+
+        // STEP 2: Encode the dynamic link
+        const qrData = `http://localhost:5000/api/qr/${newQR._id}`;
+
+        const pngBuffer = await generateLinkQrBuffer({
+            url: qrData,
+            color,
+            background,
+            logoBuffer: req.file?.buffer
+        });
+
+        const base64 = 'data:image/png;base64,' + pngBuffer.toString('base64');
+        res.json({ qrImage: base64, id: newQR._id });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
 export async function generateLinkQrBuffer({ url, color = '#000000', background = '#ffffff', logoBuffer }) {
 
 
@@ -75,50 +107,62 @@ export async function generateLinkQrBuffer({ url, color = '#000000', background 
     // Use string 'image/png' instead of Jimp.MIME_PNG
     return qrImage.getBuffer('image/png');
 }
-const generate_qr_code = expressAsyncHandler(async (req, res) => {
-    try {
+// const generate_qr_code = expressAsyncHandler(async (req, res) => {
+//     try {
 
-        const { ssid, password, color, background } = req.body;
-        if (!ssid || !password) return res.status(400).json({ error: 'SSID and password required' });
+//         const { ssid, password, color, background } = req.body;
+//         if (!ssid || !password) return res.status(400).json({ error: 'SSID and password required' });
 
-        const pngBuffer = await generateQrBuffer({
-            ssid,
-            password,
-            color,
-            background,
-            logoBuffer: req.file?.buffer
-        });
-        // await qrcode.save();
-        const newQR = await QRCodeModel.create({
-            type: 'wifi',
-            data: { ssid, password },
-            color,
-            background,
-            logo: req.file?.buffer,
-        });
-        // res.json({ id: newQR._id });
-        const base64 = 'data:image/png;base64,' + pngBuffer.toString('base64');
-        res.json({ qrImage: base64 });
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({ error: error.message });
-    }
+//         const pngBuffer = await generateQrBuffer({
+//             ssid,
+//             password,
+//             color,
+//             background,
+//             logoBuffer: req.file?.buffer
+//         });
+//         // await qrcode.save();
+//         const newQR = await QRCodeModel.create({
+//             type: 'wifi',
+//             data: { ssid, password },
+//             color,
+//             background,
+//             logo: req.file?.buffer,
+//         });
+//         // res.json({ id: newQR._id });
+//         const base64 = 'data:image/png;base64,' + pngBuffer.toString('base64');
+//         res.json({ qrImage: base64 });
+//     } catch (error) {
+//         console.error(error);
+//         res.status(500).json({ error: error.message });
+//     }
 
-})
+// })
 const get_qr_code = expressAsyncHandler(async (req, res) => {
-    try {
-        const qr = await QRCodeModel.findById(req.params.id);
-        if (!qr) return res.status(404).send('QR code not found');
+    const qr = await QRCodeModel.findById(req.params.id);
+    if (!qr) return res.status(404).send('<h1>QR code not found</h1>');
 
-        qr.active = !qr.active;
-        await qr.save();
+    if (!qr.active) {
+        return res.status(200).send('<h1>This QR code has been deactivated.</h1>');
+    }
 
-        res.json({ success: true, active: qr.active });
-    } catch (err) {
-        console.error(err);
-        res.status(500).send('Error updating QR code');
+    if (qr.type === 'wifi') {
+        res.send(`
+            <h1>WiFi Access</h1>
+            <p><strong>SSID:</strong> ${qr.data.ssid}</p>
+            <p><strong>Password:</strong> ${qr.data.password}</p>
+        `);
+    } else if (qr.type === 'url') {
+        res.redirect(qr.data.url);
+    } else {
+        res.status(400).send('<h1>Unsupported QR code type</h1>');
     }
 })
+const update_qr_code = expressAsyncHandler(async (req, res) => {
+    const qr = await QRCodeModel.findById(req.params.id);
+    qr.active = !qr.active;
+    await qr.save();
+    res.json({ success: true, active: qr.active });
+});
 const download_qr_code = expressAsyncHandler(async (req, res) => {
     try {
         const { ssid, password, color, background } = req.body;
@@ -140,17 +184,37 @@ const download_qr_code = expressAsyncHandler(async (req, res) => {
         res.status(500).json({ error: error.message });
     }
 })
+// const generate_URL_qr_code = expressAsyncHandler(async (req, res) => {
+//     try {
+//         const { url, color, background } = req.body;
+//         if (!url) return res.status(400).json({ error: 'url required' });
+
+//         const pngBuffer = await generateLinkQrBuffer({
+//             url,
+//             color,
+//             background,
+//             logoBuffer: req.file?.buffer
+//         });
+//         const newQR = await QRCodeModel.create({
+//             type: 'url',
+//             data: { url },
+//             color,
+//             background,
+//             logo: req.file?.buffer,
+//         });
+//         // res.json({ id: newQR._id });
+//         const base64 = 'data:image/png;base64,' + pngBuffer.toString('base64');
+//         res.json({ qrImage: base64 });
+//     } catch (error) {
+//         console.error(error);
+//         res.status(500).json({ error: error.message });
+//     }
+// })
 const generate_URL_qr_code = expressAsyncHandler(async (req, res) => {
     try {
         const { url, color, background } = req.body;
         if (!url) return res.status(400).json({ error: 'url required' });
 
-        const pngBuffer = await generateLinkQrBuffer({
-            url,
-            color,
-            background,
-            logoBuffer: req.file?.buffer
-        });
         const newQR = await QRCodeModel.create({
             type: 'url',
             data: { url },
@@ -158,14 +222,24 @@ const generate_URL_qr_code = expressAsyncHandler(async (req, res) => {
             background,
             logo: req.file?.buffer,
         });
-        // res.json({ id: newQR._id });
+
+        const qrData = `http://localhost:5000/api/qr/${newQR._id}`;
+
+        const pngBuffer = await generateLinkQrBuffer({
+            url: qrData,
+            color,
+            background,
+            logoBuffer: req.file?.buffer
+        });
+
         const base64 = 'data:image/png;base64,' + pngBuffer.toString('base64');
-        res.json({ qrImage: base64 });
+        res.json({ qrImage: base64, id: newQR._id });
     } catch (error) {
         console.error(error);
         res.status(500).json({ error: error.message });
     }
-})
+});
+
 const download_URL_qr_code = expressAsyncHandler(async (req, res) => {
     try {
         const { url, color, background } = req.body;

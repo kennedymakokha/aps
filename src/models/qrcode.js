@@ -8,7 +8,7 @@ const qrCodeSchema = new mongoose.Schema({
     background: String,
     logo: Buffer, // optional
     createdAt: { type: Date, default: Date.now, expires: '10m' }, // auto-delete after 10 min
-    active: { type: Boolean, default: true },
+    active: { type: Boolean, default: true },// to track if the QR code is active,
     //   ssid: String,
     //   password: String,
     //   color: String,
