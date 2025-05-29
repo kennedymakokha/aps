@@ -1,0 +1,195 @@
+import expressAsyncHandler from "express-async-handler"
+
+import express from 'express';
+import QRCode from 'qrcode';
+import { Jimp } from 'jimp';
+
+import cors from 'cors';
+import QRCodeModel from "../models/qrcode.js";
+
+
+const app = express();
+app.use(cors());
+
+function escapeQrText(text) {
+    return text.replace(/([\\;,:"])/g, '\\$1');
+}
+
+// Utility to generate QR image buffer with logo & colors
+export async function generateQrBuffer({ ssid, password, color = '#000000', background = '#ffffff', logoBuffer }) {
+    // const qrData = JSON.stringify({ ssid, password });
+    const escapedSSID = escapeQrText(ssid);
+    const escapedPassword = escapeQrText(password);
+    const qrData = `WIFI:T:WPA;S:${escapedSSID};P:${escapedPassword};;`;
+
+    const qrBuffer = await QRCode.toBuffer(qrData, {
+        errorCorrectionLevel: 'H',
+        color: { dark: color, light: background }
+    });
+
+    const qrImage = await Jimp.fromBuffer(qrBuffer);
+
+    if (logoBuffer) {
+        const logo = await Jimp.fromBuffer(logoBuffer);
+
+        const logoWidth = qrImage.bitmap.width * 0.2;
+        const aspectRatio = logo.bitmap.height / logo.bitmap.width;
+        const logoHeight = Math.round(logoWidth * aspectRatio);
+
+        logo.resize({ w: Math.round(logoWidth), h: logoHeight });
+
+        const x = (qrImage.bitmap.width - logo.bitmap.width) / 2;
+        const y = (qrImage.bitmap.height - logo.bitmap.height) / 2;
+
+        qrImage.composite(logo, x, y);
+    }
+
+    // Use string 'image/png' instead of Jimp.MIME_PNG
+    return qrImage.getBuffer('image/png');
+}
+export async function generateLinkQrBuffer({ url, color = '#000000', background = '#ffffff', logoBuffer }) {
+
+
+    const qrBuffer = await QRCode.toBuffer(url, {
+        errorCorrectionLevel: 'H',
+        color: { dark: color, light: background }
+    });
+
+    const qrImage = await Jimp.fromBuffer(qrBuffer);
+
+    if (logoBuffer) {
+        const logo = await Jimp.fromBuffer(logoBuffer);
+
+        const logoWidth = qrImage.bitmap.width * 0.2;
+        const aspectRatio = logo.bitmap.height / logo.bitmap.width;
+        const logoHeight = Math.round(logoWidth * aspectRatio);
+
+        logo.resize({ w: Math.round(logoWidth), h: logoHeight });
+
+        const x = (qrImage.bitmap.width - logo.bitmap.width) / 2;
+        const y = (qrImage.bitmap.height - logo.bitmap.height) / 2;
+
+        qrImage.composite(logo, x, y);
+    }
+
+    // Use string 'image/png' instead of Jimp.MIME_PNG
+    return qrImage.getBuffer('image/png');
+}
+const generate_qr_code = expressAsyncHandler(async (req, res) => {
+    try {
+
+        const { ssid, password, color, background } = req.body;
+        if (!ssid || !password) return res.status(400).json({ error: 'SSID and password required' });
+
+        const pngBuffer = await generateQrBuffer({
+            ssid,
+            password,
+            color,
+            background,
+            logoBuffer: req.file?.buffer
+        });
+        // await qrcode.save();
+        const newQR = await QRCodeModel.create({
+            type: 'wifi',
+            data: { ssid, password },
+            color,
+            background,
+            logo: req.file?.buffer,
+        });
+        // res.json({ id: newQR._id });
+        const base64 = 'data:image/png;base64,' + pngBuffer.toString('base64');
+        res.json({ qrImage: base64 });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: error.message });
+    }
+
+})
+const get_qr_code = expressAsyncHandler(async (req, res) => {
+    try {
+        const qr = await QRCodeModel.findById(req.params.id);
+        if (!qr) return res.status(404).send('QR code not found');
+
+        qr.active = !qr.active;
+        await qr.save();
+
+        res.json({ success: true, active: qr.active });
+    } catch (err) {
+        console.error(err);
+        res.status(500).send('Error updating QR code');
+    }
+})
+const download_qr_code = expressAsyncHandler(async (req, res) => {
+    try {
+        const { ssid, password, color, background } = req.body;
+        if (!ssid || !password) return res.status(400).json({ error: 'SSID and password required' });
+
+        const pngBuffer = await generateQrBuffer({
+            ssid,
+            password,
+            color,
+            background,
+            logoBuffer: req.file?.buffer
+        });
+
+        res.setHeader('Content-Disposition', 'attachment; filename=qr-code.png');
+        res.setHeader('Content-Type', 'image/png');
+        res.send(pngBuffer);
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: error.message });
+    }
+})
+const generate_URL_qr_code = expressAsyncHandler(async (req, res) => {
+    try {
+        const { url, color, background } = req.body;
+        if (!url) return res.status(400).json({ error: 'url required' });
+
+        const pngBuffer = await generateLinkQrBuffer({
+            url,
+            color,
+            background,
+            logoBuffer: req.file?.buffer
+        });
+        const newQR = await QRCodeModel.create({
+            type: 'url',
+            data: { url },
+            color,
+            background,
+            logo: req.file?.buffer,
+        });
+        // res.json({ id: newQR._id });
+        const base64 = 'data:image/png;base64,' + pngBuffer.toString('base64');
+        res.json({ qrImage: base64 });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: error.message });
+    }
+})
+const download_URL_qr_code = expressAsyncHandler(async (req, res) => {
+    try {
+        const { url, color, background } = req.body;
+        if (!url) return res.status(400).json({ error: 'url required' });
+
+        const pngBuffer = await generateLinkQrBuffer({
+            url,
+            color,
+            background,
+            logoBuffer: req.file?.buffer
+        });
+        res.setHeader('Content-Disposition', 'attachment; filename=qr-code.png');
+        res.setHeader('Content-Type', 'image/png');
+        res.send(pngBuffer);
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: error.message });
+    }
+})
+
+export {
+    generate_URL_qr_code,
+    download_URL_qr_code,
+    generate_qr_code,
+    download_qr_code,
+    get_qr_code
+}
