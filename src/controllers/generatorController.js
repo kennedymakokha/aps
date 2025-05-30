@@ -63,7 +63,7 @@ const generate_qr_code = expressAsyncHandler(async (req, res) => {
         });
 
         // STEP 2: Encode the dynamic link
-        const qrData = `${process.env.MONGODB_URL}/api/qr/${newQR._id}`;
+        const qrData = `${process.env.BASE_URL}/api/qr/${newQR._id}`;
 
         const pngBuffer = await generateLinkQrBuffer({
             url: qrData,
@@ -199,7 +199,7 @@ const generate_URL_qr_code = expressAsyncHandler(async (req, res) => {
             logo: req.file?.buffer,
         });
 
-        const qrData = `${process.env.MONGODB_URL}/api/qr/${newQR._id}`;
+        const qrData = `${process.env.BASE_URL}/api/qr/${newQR._id}`;
 
         const pngBuffer = await generateLinkQrBuffer({
             url: qrData,
