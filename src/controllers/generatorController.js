@@ -188,7 +188,9 @@ const download_qr_code = expressAsyncHandler(async (req, res) => {
 
 const generate_URL_qr_code = expressAsyncHandler(async (req, res) => {
     try {
+       
         const { url, color, background } = req.body;
+        console.log(url)
         if (!url) return res.status(400).json({ error: 'url required' });
 
         const newQR = await QRCodeModel.create({
