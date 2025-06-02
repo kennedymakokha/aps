@@ -2,19 +2,43 @@ import expressAsyncHandler from "express-async-handler"
 
 import express from 'express';
 import QRCode from 'qrcode';
-import { Jimp } from 'jimp';
 import geoip from 'geoip-lite';
 import cors from 'cors';
 import QRCodeModel from "../models/qrcode.js";
 import Scan from "../models/Scan.js";
 
 
+
+import { createRequire } from 'module';
+const require = createRequire(import.meta.url);
+const Jimp = require('jimp');
 const app = express();
 app.use(cors());
 
 function escapeQrText(text) {
     return text.replace(/([\\;,:"])/g, '\\$1');
 }
+// Overlay status text like "DISABLED" or "EXPIRED" onto a QR buffer
+async function overlayStatusOnQr(qrBuffer, statusText) {
+    const image = await Jimp.read(qrBuffer);
+    const font = await Jimp.loadFont(Jimp.FONT_SANS_32_WHITE);
+
+    const banner = new Jimp(image.bitmap.width, image.bitmap.height, 0xFF000080); // Red with transparency
+    banner.rotate(-45);
+
+    image.composite(banner, 0, 0, {
+        mode: Jimp.BLEND_SOURCE_OVER,
+        opacitySource: 0.5,
+    });
+
+    const x = image.bitmap.width / 4;
+    const y = image.bitmap.height / 2 - 16;
+
+    image.print(font, x, y, statusText);
+
+    return image.getBufferAsync(Jimp.MIME_PNG);
+}
+
 
 // Utility to generate QR image buffer with logo & colors
 export async function generateQrBuffer({ ssid, password, color = '#000000', background = '#ffffff', logoBuffer }) {
@@ -28,7 +52,7 @@ export async function generateQrBuffer({ ssid, password, color = '#000000', back
         color: { dark: color, light: background }
     });
 
-    const qrImage = await Jimp.fromBuffer(qrBuffer);
+    const qrImage = await Jimp.read(qrBuffer);
 
     if (logoBuffer) {
         const logo = await Jimp.fromBuffer(logoBuffer);
@@ -60,6 +84,8 @@ const generate_qr_code = expressAsyncHandler(async (req, res) => {
             color,
             background,
             logo: req.file?.buffer,
+            expiresAt: expiresAt ? new Date(expiresAt) : null,
+            maxScans: maxScans ?? null,
         });
 
         // STEP 2: Encode the dynamic link
@@ -88,7 +114,7 @@ export async function generateLinkQrBuffer({ url, color = '#000000', background 
         color: { dark: color, light: background }
     });
 
-    const qrImage = await Jimp.fromBuffer(qrBuffer);
+    const qrImage = await Jimp.read(qrBuffer);
 
     if (logoBuffer) {
         const logo = await Jimp.fromBuffer(logoBuffer);
@@ -109,23 +135,94 @@ export async function generateLinkQrBuffer({ url, color = '#000000', background 
     return qrImage.getBuffer('image/png');
 }
 
+// const get_qr_code = expressAsyncHandler(async (req, res) => {
+//     const qr = await QRCodeModel.findById(req.params.id);
+//     console.log(qr)
+//     const now = new Date();
+
+//     if (!qr.active) {
+//         return res.status(200).send('<h1>This QR code has been deactivated.</h1>');
+//     }
+
+//     if (qr.expiresAt && now > qr.expiresAt) {
+//         return res.status(200).send('<h1>This QR code has expired.</h1>');
+//     }
+
+//     if (qr.maxScans !== null && qr.scanCount >= qr.maxScans) {
+//         return res.status(200).send('<h1>This QR code has reached its scan limit.</h1>');
+//     }
+
+//     if (qr.type === 'wifi') {
+//         qr.scanCount += 1;
+//         await qr.save();
+//         res.send(`
+//             <h1>WiFi Access</h1>
+//             <p><strong>SSID:</strong> ${qr.data.ssid}</p>
+//             <p><strong>Password:</strong> ${qr.data.password}</p>
+//         `);
+//     } else if (qr.type === 'url') {
+//         // Don't allow redirect if QR is inactive (already checked above)
+
+//         const ip = (req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.socket.remoteAddress;
+//         const userAgent = req.headers['user-agent'];
+//         const geo = geoip.lookup(ip) || {};
+
+//         await Scan.create({
+
+//             qrCodeId: req.params.id,
+//             ip,
+//             userAgent,
+//             geo: {
+//                 country: geo.country || null,
+//                 region: geo.region || null,
+//                 city: geo.city || null,
+//                 ll: geo.ll || [],
+//             },
+//         });
+//         qr.scanCount += 1;
+//         await qr.save();
+//         res.redirect(qr.data.url);
+
+
+//     } else {
+//         res.status(400).send('<h1>Unsupported QR code type</h1>');
+//     }
+// })
 const get_qr_code = expressAsyncHandler(async (req, res) => {
     const qr = await QRCodeModel.findById(req.params.id);
     if (!qr) return res.status(404).send('<h1>QR code not found</h1>');
 
-    if (!qr.active) {
-        return res.status(200).send('<h1>This QR code has been deactivated.</h1>');
+    const now = new Date();
+    let status = null;
+
+    if (!qr.active) status = 'DISABLED';
+    else if (qr.expiresAt && now > qr.expiresAt) status = 'EXPIRED';
+    else if (qr.maxScans !== null && qr.scanCount >= qr.maxScans) status = 'SCAN LIMIT';
+
+    if (status) {
+        const qrLink = `${process.env.BASE_URL}/api/qr/${qr._id}`;
+        const baseQR = await generateLinkQrBuffer({
+            url: qrLink,
+            color: qr.color,
+            background: qr.background,
+            logoBuffer: qr.logo
+        });
+
+        const overlayed = await overlayStatusOnQr(baseQR, status);
+        res.setHeader('Content-Type', 'image/png');
+        return res.send(overlayed);
     }
 
+    // QR is valid – continue as usual
     if (qr.type === 'wifi') {
+        qr.scanCount += 1;
+        await qr.save();
         res.send(`
             <h1>WiFi Access</h1>
             <p><strong>SSID:</strong> ${qr.data.ssid}</p>
             <p><strong>Password:</strong> ${qr.data.password}</p>
         `);
     } else if (qr.type === 'url') {
-
-        // const ip = req.headers['x-forwarded-for']?.split(',')[0] || req.socket.remoteAddress;
         const ip = (req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.socket.remoteAddress;
         const userAgent = req.headers['user-agent'];
         const geo = geoip.lookup(ip) || {};
@@ -142,13 +239,14 @@ const get_qr_code = expressAsyncHandler(async (req, res) => {
             },
         });
 
-
+        qr.scanCount += 1;
+        await qr.save();
         res.redirect(qr.data.url);
-
     } else {
         res.status(400).send('<h1>Unsupported QR code type</h1>');
     }
-})
+});
+
 const get_codes = expressAsyncHandler(async (req, res) => {
     try {
         const codes = await QRCodeModel.find().sort({ createdAt: -1 });
@@ -188,9 +286,9 @@ const download_qr_code = expressAsyncHandler(async (req, res) => {
 
 const generate_URL_qr_code = expressAsyncHandler(async (req, res) => {
     try {
-       
+
         const { url, color, background } = req.body;
-        console.log(url)
+
         if (!url) return res.status(400).json({ error: 'url required' });
 
         const newQR = await QRCodeModel.create({
@@ -199,6 +297,8 @@ const generate_URL_qr_code = expressAsyncHandler(async (req, res) => {
             color,
             background,
             logo: req.file?.buffer,
+            expiresAt: null,
+            maxScans: null,
         });
 
         const qrData = `${process.env.BASE_URL}/api/qr/${newQR._id}`;
