@@ -11,7 +11,7 @@ const PORT = process.env.PORT || 5000
 dbConfig()
 const app = express();
 app.use(cors({
-  origin: ['http://localhost:3000', 'https://qrcode.mtandao.app'], // add frontend origin(s) here
+  origin: ['http://localhost:3000', 'https://qrcode.mtandao.app','https://qrcode.mtandao.app/QR-code-generator'], // add frontend origin(s) here
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true
